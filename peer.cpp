@@ -15,6 +15,7 @@ using namespace std;
 #define CC_PORT 12349       // Client to Client
 #define BUF_SIZE 1024
 
+
 // thread에 인자로 넣어줄 구조체
 struct thread_args {
     int sock_fd;
@@ -39,6 +40,8 @@ void printError(string msg) {
     exit(1);
 }
 
+// connect를 시도하는 peer에서 받는 peer로 연결한 thread
+// answer는 여기서 수신해야함
 void *send_to_clnt_thread(void *other_clnt_info) {
     char *ip = (*(thread_args_ip_port *)other_clnt_info).ip;               // 그냥 =으로 대입은 안되나?
     int port = (*(thread_args_ip_port *)other_clnt_info).port;
@@ -60,12 +63,19 @@ void *send_to_clnt_thread(void *other_clnt_info) {
         printError("connect to other peer error");
 
     cout << "connect to other peer!" << endl;
-    connected_peer[ip] = send_clnt_fd;                                                      // 만약 이미 연결중이라면 거부하는 것 구현하기
 
-    int buffer[BUF_SIZE];
+    connected_peer[ip] = send_clnt_fd;                                      // 만약 이미 연결중이라면 거부하는 것 구현하기
+
+// 이 함수가 끝나도 connect는 유지가 될까?
+
+    char buffer[BUF_SIZE];
     int recv_len = recv(send_clnt_fd, &buffer, BUF_SIZE, 0);
     while(recv_len > 0) {
-        cout << "From " << ip << " : "  << buffer << endl;
+        if(!strcmp(buffer, "answer")) {
+            send(send_clnt_fd, "ack", BUF_SIZE, 0);
+            recv(send_clnt_fd, &buffer, BUF_SIZE, 0);
+            cout << "From " << ip << " : "  << buffer << endl;
+        }
         recv_len = recv(send_clnt_fd, &buffer, BUF_SIZE, 0);
     }
 }
@@ -73,15 +83,28 @@ void *send_to_clnt_thread(void *other_clnt_info) {
 
 // 매 연결마다 독립적으로 생성될 thread (local variable만)
 // 상대가 연결을 끊을 때는 thread 종료, main flow에서 
+// connect를 받는 peer thread  => 
 void *recv_from_clnt_thread(void * other_clnt_info) {
     int other_clnt_fd = (*(thread_args *)other_clnt_info).sock_fd;
     sockaddr_in other_clnt_addr = (*(thread_args *)other_clnt_info).addr;
     char buffer[BUF_SIZE];
     char *other_ip = inet_ntoa(other_clnt_addr.sin_addr);
+    // int other_clnt_fd = connected_peer[other_ip];
 
     int recv_len = recv(other_clnt_fd, &buffer, BUF_SIZE, 0);
     while(recv_len > 0) {
-        cout << "From " << other_ip << " : " << buffer << endl;
+        if(!strcmp(buffer, "disconnect")) {
+            cout << other_ip << endl;
+            connected_peer.erase(other_ip);
+            send(other_clnt_fd, "Disconnect Success!", BUF_SIZE, 0);
+            // break;      // 나가는 법?
+        }
+        else if(!strcmp(buffer, "guess")) {
+            send(other_clnt_fd, "ack", BUF_SIZE, 0);
+            recv(other_clnt_fd, &buffer, BUF_SIZE, 0);
+            cout << "From " << other_ip << " : " << buffer << endl;
+            send(other_clnt_fd, "ack", BUF_SIZE, 0);
+        }
         recv_len = recv(other_clnt_fd, &buffer, BUF_SIZE, 0);
     }
 }
@@ -139,7 +162,10 @@ void getOnlineUser() {
     for(int i = 0; i < list_len; i++) {                     // list + list_end 개수 만큼 수신
         send(server_send_fd, "ack", BUF_SIZE, 0);           // send, receive 의 sync를 위한 ack
         recv(server_send_fd, &buffer, BUF_SIZE, 0);
-        cout << buffer << endl;
+        cout << "IP : " << buffer << ", ";
+        send(server_send_fd, "ack", BUF_SIZE, 0);
+        recv(server_send_fd, &buffer, BUF_SIZE, 0);
+        cout << "Port : " << buffer << endl;
     }
 }
 
@@ -152,10 +178,36 @@ void connect(char *ip, int port) {
     sleep(1);                                                // 반환되어버리면 구조체 내의 값들이 해제되어 사라짐
 }
 
-void guess(char *ip, char *num) {
+void disconnect(char *ip) {
+    if(connected_peer.find(ip) == connected_peer.end())
+        return;
+    char buffer[BUF_SIZE];
     int opponent_fd = connected_peer[ip];
+    cout << "opponent fd : " << opponent_fd << endl;
+    connected_peer.erase(ip);
+    send(opponent_fd, "disconnect", BUF_SIZE, 0);
+    recv(opponent_fd, &buffer, BUF_SIZE, 0);
+    cout << buffer << endl;
+}
 
+void guess(char *ip, char *num) {
+    if(connected_peer.find(ip) == connected_peer.end())
+        return;
+    char buffer[BUF_SIZE];
+    int opponent_fd = connected_peer[ip];
+    send(opponent_fd, "guess", BUF_SIZE, 0);
+    recv(opponent_fd, &buffer, BUF_SIZE, 0);
     send(opponent_fd, num, BUF_SIZE, 0);
+}
+
+void answer(char *ip, char *ans) {
+    if(connected_peer.find(ip) == connected_peer.end())
+        return;
+    char buffer[BUF_SIZE];
+    int opponent_fd = connected_peer[ip];
+    send(opponent_fd, "answer", BUF_SIZE, 0);
+    recv(opponent_fd, &buffer, BUF_SIZE, 0);
+    send(opponent_fd, "This is Answer!!", BUF_SIZE, 0);
 }
 
 void logOff() {
@@ -174,6 +226,11 @@ void menu() {
     while(1) {
         cout << "Input Command : ";
         cin >> user_input;
+
+        for(auto iter = connected_peer.begin(); iter != connected_peer.end(); iter++) {
+            cout << iter->first << ", " << iter->second << endl;
+        }
+
         if(!strcmp(user_input, "help")) {
             printMenu();
         }
@@ -188,7 +245,7 @@ void menu() {
         }
         else if(!strcmp(user_input, "disconnect")) {
             cin >> arg1;
-
+            disconnect(arg1);
         }
         else if(!strcmp(user_input, "guess")) {
             cin >> arg1 >> arg2;
@@ -196,6 +253,7 @@ void menu() {
         }
         else if(!strcmp(user_input, "answer")) {
             cin >> arg1 >> arg2;
+            answer(arg1, arg2);
         }
         else if(!strcmp(user_input, "logoff")) {
             logOff();
