@@ -15,7 +15,6 @@ using namespace std;
 #define CC_PORT 12349       // Client to Client
 #define BUF_SIZE 1024
 
-
 // thread에 인자로 넣어줄 구조체
 struct thread_args {
     int sock_fd;
@@ -39,39 +38,6 @@ void printError(string msg) {
     cout << msg << endl;
     exit(1);
 }
-
-// 서버로부터 응답을 받는 소켓 생성 및 대기
-// void * recv_from_server(void * sock_info) {
-//     int addrLen = sizeof(clnt_addr);
-
-//     if(bind(server_recv_fd, (sockaddr *)&clnt_addr, addrLen) < 0) 
-//         printError("Receive from server bind error");
-    
-//     if(listen(server_recv_fd, 3))
-//         printError("Receive from server listen error");
-//     cout << "Start receive from server" << endl;
-
-
-//     // server로부터의 연결 수락
-//     serv_accept_fd = accept(server_recv_fd, (sockaddr *)&serv_accept_addr, (socklen_t *)&addrLen);
-//     if(serv_accept_fd < 0)
-//         printError("Receive from server accept error");
-//     cout << "Receive from server accepted\n";
-
-//     printf("Server Info : IP %s, Port %d\n", inet_ntoa(serv_accept_addr.sin_addr), ntohs(serv_accept_addr.sin_port));
-
-//     char buffer[BUF_SIZE];
-//     int recv_len = recv(serv_accept_fd, &buffer, BUF_SIZE, 0);
-//     while(recv_len > 0) {
-//         if(strcmp(buffer, "list_end")) {               // list가 끝이면
-//             cout << buffer << endl;
-//         }
-//         recv_len = recv(serv_accept_fd, &buffer, BUF_SIZE, 0);
-//     }
-
-//     // close(server_recv_fd);
-//     cout << "thread end" << endl;
-// }
 
 void *send_to_clnt_thread(void *other_clnt_info) {
     char *ip = (*(thread_args_ip_port *)other_clnt_info).ip;               // 그냥 =으로 대입은 안되나?
