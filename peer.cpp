@@ -8,6 +8,8 @@
 #include <pthread.h>
 #include <vector>
 #include <map>
+#include <cstdlib>
+#include <ctime>
 
 using namespace std;
 
@@ -32,13 +34,42 @@ int p2p_recv_fd;            // p2p에서 서버역할 소켓
 sockaddr_in serv_addr;      // regiServer 소켓 정보
 sockaddr_in p2p_recv_addr;  // 나의 소켓 정보
 vector<char *> peer_list;   // 서버에서 받아온 peer list
-map<string, int> connected_peer;    // 현재 연결되어 있는 peer ip의 fd
-map<string, int> peer_last_ans;     // 해당 peer의 최근 응답
+map<string, int> connected_peer;            // 현재 연결되어 있는 peer ip의 fd
+map<string, string> peer_last_guess;        // 해당 peer의 최근 응답
+map<string, string> baseball_answer;        // 각 peer가 맞춰야할 정답 
 
 void printError(string msg) {
     cout << msg << endl;
     exit(1);
 }
+
+
+string baseball_game(char *ip) {
+    string last_guess = peer_last_guess[ip];
+    string answer = baseball_answer[ip];
+    bool a_check[3] = {0, };
+    int strike_cnt = 0, ball_cnt = 0;
+
+    for(int g = 0; g < 3; g++) {
+        for(int a = 0; a < 3; a++) {
+            if(a_check[a]) continue;
+            if(g == a && last_guess[g] == answer[a]) {
+                strike_cnt++;
+                a_check[a] = true;
+                break;
+            }
+            else if(last_guess[g] == answer[a]) {
+                ball_cnt++;
+                a_check[a] = true;
+            }
+        }
+    }
+    string ret;
+    ret.push_back(strike_cnt + '0');
+    ret.push_back(ball_cnt + '0');
+    return ret;
+}
+
 
 // connect를 시도하는 peer에서 받는 peer로 연결한 thread
 // answer는 여기서 수신해야함
@@ -48,26 +79,19 @@ void *send_to_clnt_thread(void *other_clnt_info) {
     int send_clnt_fd = socket(PF_INET, SOCK_STREAM, 0);
     sockaddr_in send_clnt_addr;
 
-    cout << ip << endl;
-    cout << port << endl;
-
     memset(&send_clnt_addr, 0, sizeof(send_clnt_addr));
     send_clnt_addr.sin_family = AF_INET;
     send_clnt_addr.sin_port = htons(port);
     inet_pton(AF_INET, ip, &send_clnt_addr.sin_addr.s_addr);
 
-
-
     bind(send_clnt_fd, (sockaddr *)&send_clnt_addr, sizeof(sockaddr));
     if(connect(send_clnt_fd, (sockaddr*)&send_clnt_addr, sizeof(sockaddr)) < 0)
         printError("connect to other peer error");
-
     cout << "connect to other peer!" << endl;
-
+    
     connected_peer[ip] = send_clnt_fd;                                      // 만약 이미 연결중이라면 거부하는 것 구현하기
 
-    // 이 함수가 끝나도 connect는 유지가 됨
-    // accept한 peer로부터 answer를 받기 위해선 thread상에서 대기해야 함 -> 받은 recv는 모두 이곳에서 처리
+// 이 함수가 끝나도 connect는 유지가 될까?
 
     char buffer[BUF_SIZE];
     int recv_len = recv(send_clnt_fd, &buffer, BUF_SIZE, 0);
@@ -75,15 +99,14 @@ void *send_to_clnt_thread(void *other_clnt_info) {
         if(!strcmp(buffer, "answer")) {
             send(send_clnt_fd, "ack", BUF_SIZE, 0);
             recv(send_clnt_fd, &buffer, BUF_SIZE, 0);
-            cout << "maybe here?\n";
-            cout << "From " << ip << " : "  << buffer << endl;
+            cout << "Answer From " << ip << " : "  << buffer[0] << " Strike, " << buffer[1] << " Ball" << endl;
         }
         else if(!strcmp(buffer, "disconnect")) {
             cout << "disconnect success!\n";
         }
-        else if(!strcmp(buffer, "ack")) {
-            cout << "recv ack!\n";
-        }
+        // else if(!strcmp(buffer, "ack")) {
+        //     cout << "recv ack!\n";
+        // }
         recv_len = recv(send_clnt_fd, &buffer, BUF_SIZE, 0);
     }
 }
@@ -102,25 +125,27 @@ void *recv_from_clnt_thread(void * other_clnt_info) {
 
     int recv_len = recv(other_clnt_fd, &buffer, BUF_SIZE, 0);
     while(recv_len > 0) {
-        cout << "buffer : " << buffer << endl;
         if(!strcmp(buffer, "disconnect")) {
-            cout << "map size : " << connected_peer.size() << endl;
+            // cout << "map size : " << connected_peer.size() << endl;
+            baseball_answer.erase(erase_ip);
             connected_peer.erase(erase_ip);
             send(other_clnt_fd, "disconnect", BUF_SIZE, 0);
-            cout << "map size : " << connected_peer.size() << endl;
-            // break;      // 나가는 법?
+            // cout << "map size : " << connected_peer.size() << endl;
+            // break;      
         }
         else if(!strcmp(buffer, "guess")) {
             send(other_clnt_fd, "ack", BUF_SIZE, 0);
             recv(other_clnt_fd, &buffer, BUF_SIZE, 0);
-            cout << "is here?" << endl;
-            cout << "From " << other_ip << " : " << buffer << endl;
             send(other_clnt_fd, "ack", BUF_SIZE, 0);
+            cout << "Guess From " << other_ip << " : " << buffer << endl;
+
+            peer_last_guess[other_ip] = buffer;                           // 해당 ip의 최근 guess number 저장
         }
         recv_len = recv(other_clnt_fd, &buffer, BUF_SIZE, 0);
     }
 }
 
+// 다른 peer에서 연결을 해오는 소켓 listening thread
 // 1 개만 생성될 thread (전역 변수 사용 가능)
 void *listen_from_clnt_thread(void *arg) {
     p2p_recv_fd = socket(PF_INET, SOCK_STREAM, 0);
@@ -138,7 +163,7 @@ void *listen_from_clnt_thread(void *arg) {
     pthread_t recv_other_clnt;
     sockaddr_in other_clnt_addr;
     int other_fd;
-    cout << "before accept" << endl;
+    // cout << "before accept" << endl;
 
     while(1) {
         other_fd = accept(p2p_recv_fd, (sockaddr *)&other_clnt_addr, (socklen_t *)&addr_size);
@@ -147,6 +172,13 @@ void *listen_from_clnt_thread(void *arg) {
         cout << "Accepted from other clnt" << endl;
 
         char *other_ip = inet_ntoa(other_clnt_addr.sin_addr);
+        srand(static_cast<unsigned int>(std::time(0)));
+        string ans;
+        for(int i = 0; i < 3; i++) 
+            ans.push_back(rand() % 10 + '0');   
+        cout << "rand Num : " << ans << endl;
+
+        baseball_answer[other_ip] = ans;                                              // 야구게임 답을 저장
         connected_peer[other_ip] = other_fd;                                    // 현재 연결된 peer의 fd 저장
 
         thread_args pass_args = {other_fd, other_clnt_addr};
@@ -195,7 +227,7 @@ void disconnect(char *ip) {
         return;
     char buffer[BUF_SIZE];
     int opponent_fd = connected_peer[ip];
-    cout << "opponent fd : " << opponent_fd << endl;
+    // cout << "opponent fd : " << opponent_fd << endl;
     connected_peer.erase(ip);
     send(opponent_fd, "disconnect", BUF_SIZE, 0);
     // recv(opponent_fd, &buffer, BUF_SIZE, 0);
@@ -207,20 +239,23 @@ void guess(char *ip, char *num) {
         return;
     char buffer[BUF_SIZE];
     int opponent_fd = connected_peer[ip];
-    send(opponent_fd, "guess", BUF_SIZE, 0);                    // recv는 thread상에서 처리하므로 send만 사용
+    send(opponent_fd, "guess", BUF_SIZE, 0);
     // recv(opponent_fd, &buffer, BUF_SIZE, 0);
     send(opponent_fd, num, BUF_SIZE, 0);
     // recv(opponent_fd, &buffer, BUF_SIZE, 0);
 }
 
-void answer(char *ip, char *ans) {
+void answer(char *ip) {
     if(connected_peer.find(ip) == connected_peer.end())
         return;
     char buffer[BUF_SIZE];
     int opponent_fd = connected_peer[ip];
+
+    string ans = baseball_game(ip);
+    // strcpy(buffer, ans.c_str());
+
     send(opponent_fd, "answer", BUF_SIZE, 0);
-    // recv(opponent_fd, &buffer, BUF_SIZE, 0);
-    send(opponent_fd, "This is Answer!!", BUF_SIZE, 0);
+    send(opponent_fd, ans.c_str(), BUF_SIZE, 0);
 }
 
 void logOff() {
@@ -240,9 +275,11 @@ void menu() {
         cout << "Input Command : ";
         cin >> user_input;
 
-        for(auto iter = connected_peer.begin(); iter != connected_peer.end(); iter++) {
-            cout << iter->first << ", " << iter->second << endl;
-        }
+        // for(auto iter = connected_peer.begin(); iter != connected_peer.end(); iter++) {
+        //     cout << iter->first << ", " << iter->second << endl;
+        // }
+        // for(auto iter = baseball_answer.begin(); iter != baseball_answer.end(); iter++)
+        //     cout << iter->first << ", " << iter->second << endl;
 
         if(!strcmp(user_input, "help")) {
             printMenu();
@@ -265,8 +302,8 @@ void menu() {
             guess(arg1, arg2);
         }
         else if(!strcmp(user_input, "answer")) {
-            cin >> arg1 >> arg2;
-            answer(arg1, arg2);
+            cin >> arg1;
+            answer(arg1);
         }
         else if(!strcmp(user_input, "logoff")) {
             logOff();
