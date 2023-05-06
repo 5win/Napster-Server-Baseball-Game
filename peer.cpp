@@ -32,8 +32,8 @@ int p2p_recv_fd;            // p2p에서 서버역할 소켓
 sockaddr_in serv_addr;      // regiServer 소켓 정보
 sockaddr_in p2p_recv_addr;  // 나의 소켓 정보
 vector<char *> peer_list;   // 서버에서 받아온 peer list
-map<char *, int> connected_peer;    // 현재 연결되어 있는 peer ip의 fd
-map<char *, int> peer_last_ans;     // 해당 peer의 최근 응답
+map<string, int> connected_peer;    // 현재 연결되어 있는 peer ip의 fd
+map<string, int> peer_last_ans;     // 해당 peer의 최근 응답
 
 void printError(string msg) {
     cout << msg << endl;
@@ -66,7 +66,8 @@ void *send_to_clnt_thread(void *other_clnt_info) {
 
     connected_peer[ip] = send_clnt_fd;                                      // 만약 이미 연결중이라면 거부하는 것 구현하기
 
-// 이 함수가 끝나도 connect는 유지가 될까?
+    // 이 함수가 끝나도 connect는 유지가 됨
+    // accept한 peer로부터 answer를 받기 위해선 thread상에서 대기해야 함 -> 받은 recv는 모두 이곳에서 처리
 
     char buffer[BUF_SIZE];
     int recv_len = recv(send_clnt_fd, &buffer, BUF_SIZE, 0);
@@ -74,7 +75,14 @@ void *send_to_clnt_thread(void *other_clnt_info) {
         if(!strcmp(buffer, "answer")) {
             send(send_clnt_fd, "ack", BUF_SIZE, 0);
             recv(send_clnt_fd, &buffer, BUF_SIZE, 0);
+            cout << "maybe here?\n";
             cout << "From " << ip << " : "  << buffer << endl;
+        }
+        else if(!strcmp(buffer, "disconnect")) {
+            cout << "disconnect success!\n";
+        }
+        else if(!strcmp(buffer, "ack")) {
+            cout << "recv ack!\n";
         }
         recv_len = recv(send_clnt_fd, &buffer, BUF_SIZE, 0);
     }
@@ -89,19 +97,23 @@ void *recv_from_clnt_thread(void * other_clnt_info) {
     sockaddr_in other_clnt_addr = (*(thread_args *)other_clnt_info).addr;
     char buffer[BUF_SIZE];
     char *other_ip = inet_ntoa(other_clnt_addr.sin_addr);
+    string erase_ip = string(other_ip);
     // int other_clnt_fd = connected_peer[other_ip];
 
     int recv_len = recv(other_clnt_fd, &buffer, BUF_SIZE, 0);
     while(recv_len > 0) {
+        cout << "buffer : " << buffer << endl;
         if(!strcmp(buffer, "disconnect")) {
-            cout << other_ip << endl;
-            connected_peer.erase(other_ip);
-            send(other_clnt_fd, "Disconnect Success!", BUF_SIZE, 0);
+            cout << "map size : " << connected_peer.size() << endl;
+            connected_peer.erase(erase_ip);
+            send(other_clnt_fd, "disconnect", BUF_SIZE, 0);
+            cout << "map size : " << connected_peer.size() << endl;
             // break;      // 나가는 법?
         }
         else if(!strcmp(buffer, "guess")) {
             send(other_clnt_fd, "ack", BUF_SIZE, 0);
             recv(other_clnt_fd, &buffer, BUF_SIZE, 0);
+            cout << "is here?" << endl;
             cout << "From " << other_ip << " : " << buffer << endl;
             send(other_clnt_fd, "ack", BUF_SIZE, 0);
         }
@@ -186,8 +198,8 @@ void disconnect(char *ip) {
     cout << "opponent fd : " << opponent_fd << endl;
     connected_peer.erase(ip);
     send(opponent_fd, "disconnect", BUF_SIZE, 0);
-    recv(opponent_fd, &buffer, BUF_SIZE, 0);
-    cout << buffer << endl;
+    // recv(opponent_fd, &buffer, BUF_SIZE, 0);
+    // cout << buffer << endl;
 }
 
 void guess(char *ip, char *num) {
@@ -195,9 +207,10 @@ void guess(char *ip, char *num) {
         return;
     char buffer[BUF_SIZE];
     int opponent_fd = connected_peer[ip];
-    send(opponent_fd, "guess", BUF_SIZE, 0);
-    recv(opponent_fd, &buffer, BUF_SIZE, 0);
+    send(opponent_fd, "guess", BUF_SIZE, 0);                    // recv는 thread상에서 처리하므로 send만 사용
+    // recv(opponent_fd, &buffer, BUF_SIZE, 0);
     send(opponent_fd, num, BUF_SIZE, 0);
+    // recv(opponent_fd, &buffer, BUF_SIZE, 0);
 }
 
 void answer(char *ip, char *ans) {
@@ -206,7 +219,7 @@ void answer(char *ip, char *ans) {
     char buffer[BUF_SIZE];
     int opponent_fd = connected_peer[ip];
     send(opponent_fd, "answer", BUF_SIZE, 0);
-    recv(opponent_fd, &buffer, BUF_SIZE, 0);
+    // recv(opponent_fd, &buffer, BUF_SIZE, 0);
     send(opponent_fd, "This is Answer!!", BUF_SIZE, 0);
 }
 
