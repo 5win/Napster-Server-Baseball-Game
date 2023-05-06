@@ -39,6 +39,7 @@ map<string, int> connected_peer;            // 현재 연결되어 있는 peer i
 map<string, string> peer_last_guess;        // 해당 peer의 최근 응답
 map<string, string> baseball_answer;        // 각 peer가 맞춰야할 정답 
 map<string, pthread_t> thread_list;         // connect한 thread list
+map<string, int> game_try_cnt;              // 야구 게임 시도 횟수
 
 
 
@@ -102,14 +103,17 @@ void *send_to_clnt_thread(void *other_clnt_info) {
         if(!strcmp(buffer, "answer")) {
             send(send_clnt_fd, "ack", BUF_SIZE, 0);
             recv(send_clnt_fd, &buffer, BUF_SIZE, 0);
-            cout << "Answer From " << ip << " : "  << buffer[0] << " Strike, " << buffer[1] << " Ball" << endl;
+            if(!strcmp(buffer, "win")) {
+                cout << "Correct!   " << game_try_cnt[ip] << " try\n\n";
+                game_try_cnt[ip] = 0;                                       // 시도 횟수 초기화
+                // 여기서 끝내나 아니면 랜덤숫자를 바꿔서 계속 하나?
+            }
+            else
+                cout << "Answer From " << ip << " : "  << buffer[0] << " Strike, " << buffer[1] << " Ball" << endl;
         }
         else if(!strcmp(buffer, "disconnect")) {
             cout << "disconnect success!\n";
         }
-        // else if(!strcmp(buffer, "ack")) {
-        //     cout << "recv ack!\n";
-        // }
         recv_len = recv(send_clnt_fd, &buffer, BUF_SIZE, 0);
     }
 }
@@ -125,17 +129,15 @@ void *recv_from_clnt_thread(void * other_clnt_info) {
     int recv_len = recv(other_clnt_fd, &buffer, BUF_SIZE, 0);
     while(recv_len > 0) {
         if(!strcmp(buffer, "disconnect")) {
-            // cout << "map size : " << connected_peer.size() << endl;
             baseball_answer.erase(other_ip);
             connected_peer.erase(other_ip);
             send(other_clnt_fd, "disconnect", BUF_SIZE, 0);
-            // cout << "map size : " << connected_peer.size() << endl;
-
 
             // socket, thread close, erase from thread list
             close(other_clnt_fd);
             pthread_cancel(thread_list[other_ip]);
             thread_list.erase(other_ip);
+            game_try_cnt.erase(other_ip);
             break;      
         }
         else if(!strcmp(buffer, "guess")) {
@@ -168,7 +170,6 @@ void *listen_from_clnt_thread(void *arg) {
     pthread_t recv_other_clnt;
     sockaddr_in other_clnt_addr;
     int other_fd;
-    // cout << "before accept" << endl;
 
     while(1) {
         other_fd = accept(p2p_recv_fd, (sockaddr *)&other_clnt_addr, (socklen_t *)&addr_size);
@@ -181,7 +182,7 @@ void *listen_from_clnt_thread(void *arg) {
         string ans;
         for(int i = 0; i < 3; i++) 
             ans.push_back(rand() % 10 + '0');   
-        cout << "rand Num : " << ans << endl;
+        // cout << "rand Num : " << ans << endl;
 
         baseball_answer[other_ip] = ans;                                              // 야구게임 답을 저장
         connected_peer[other_ip] = other_fd;                                    // 현재 연결된 peer의 fd 저장
@@ -192,7 +193,7 @@ void *listen_from_clnt_thread(void *arg) {
 }
 
 void printMenu() {
-    cout << "<Command list>\n";
+    cout << "\n<Command list>\n";
     cout << "1. online_users\n";
     cout << "2. connect [ip] [port]\n";
     cout << "3. disconnect [peer]\n";
@@ -225,6 +226,7 @@ void connect(char *ip, int port) {
     pthread_create(&send_other_clnt, NULL, send_to_clnt_thread, (void *)&pass_args);
     
     thread_list[ip] = send_other_clnt;                       // thread descriptor 저장
+    game_try_cnt[ip] = 0;                                    // 야구 게임 시도 횟수 초기화
 
     sleep(1);                                                // 반환되어버리면 구조체 내의 값들이 해제되어 사라짐
 }
@@ -234,11 +236,8 @@ void disconnect(char *ip) {
         return;
     char buffer[BUF_SIZE];
     int opponent_fd = connected_peer[ip];
-    // cout << "opponent fd : " << opponent_fd << endl;
     connected_peer.erase(ip);
     send(opponent_fd, "disconnect", BUF_SIZE, 0);
-    // recv(opponent_fd, &buffer, BUF_SIZE, 0);
-    // cout << buffer << endl;
 }
 
 void guess(char *ip, char *num) {
@@ -247,9 +246,8 @@ void guess(char *ip, char *num) {
     char buffer[BUF_SIZE];
     int opponent_fd = connected_peer[ip];
     send(opponent_fd, "guess", BUF_SIZE, 0);
-    // recv(opponent_fd, &buffer, BUF_SIZE, 0);
     send(opponent_fd, num, BUF_SIZE, 0);
-    // recv(opponent_fd, &buffer, BUF_SIZE, 0);
+    game_try_cnt[ip]++;                                     // 시도 횟수 +1
 }
 
 void answer(char *ip) {
@@ -259,10 +257,10 @@ void answer(char *ip) {
     int opponent_fd = connected_peer[ip];
 
     string ans = baseball_game(ip);
-    // strcpy(buffer, ans.c_str());
 
     send(opponent_fd, "answer", BUF_SIZE, 0);
-    send(opponent_fd, ans.c_str(), BUF_SIZE, 0);
+    if(ans == "30")     send(opponent_fd, "win", BUF_SIZE, 0);          // 정답일 때
+    else                send(opponent_fd, ans.c_str(), BUF_SIZE, 0);
 }
 
 void logOff() {
@@ -271,6 +269,7 @@ void logOff() {
     send(server_send_fd, "logoff", BUF_SIZE, 0);
     recv(server_send_fd, &buffer, BUF_SIZE, 0);
     cout << buffer << endl;
+    exit(1);
 }
 
 // 사용자 입력에 따른 동작
@@ -279,7 +278,7 @@ void menu() {
     char buffer[BUF_SIZE];
 
     while(1) {
-        cout << "Input Command : ";
+        cout << "---## Input Command ##---";
         cin >> user_input;
 
         for(auto iter = connected_peer.begin(); iter != connected_peer.end(); iter++) {
@@ -316,6 +315,7 @@ void menu() {
             logOff();
         }
         cout << '\n';
+        cin.clear();
     }
 }
 
