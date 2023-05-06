@@ -29,6 +29,7 @@ struct thread_args_ip_port {
     int port;
 };
 
+// global variables
 int server_send_fd;         // regiServer 연결소켓
 int p2p_recv_fd;            // p2p에서 서버역할 소켓
 sockaddr_in serv_addr;      // regiServer 소켓 정보
@@ -37,12 +38,14 @@ vector<char *> peer_list;   // 서버에서 받아온 peer list
 map<string, int> connected_peer;            // 현재 연결되어 있는 peer ip의 fd
 map<string, string> peer_last_guess;        // 해당 peer의 최근 응답
 map<string, string> baseball_answer;        // 각 peer가 맞춰야할 정답 
+map<string, pthread_t> thread_list;         // connect한 thread list
+
+
 
 void printError(string msg) {
     cout << msg << endl;
     exit(1);
 }
-
 
 string baseball_game(char *ip) {
     string last_guess = peer_last_guess[ip];
@@ -91,7 +94,7 @@ void *send_to_clnt_thread(void *other_clnt_info) {
     
     connected_peer[ip] = send_clnt_fd;                                      // 만약 이미 연결중이라면 거부하는 것 구현하기
 
-// 이 함수가 끝나도 connect는 유지가 될까?
+    // 이 함수가 끝나도 fd로 send, recv 가능 -> thread는 종료되지 않음?
 
     char buffer[BUF_SIZE];
     int recv_len = recv(send_clnt_fd, &buffer, BUF_SIZE, 0);
@@ -111,27 +114,29 @@ void *send_to_clnt_thread(void *other_clnt_info) {
     }
 }
 
-
 // 매 연결마다 독립적으로 생성될 thread (local variable만)
 // 상대가 연결을 끊을 때는 thread 종료, main flow에서 
-// connect를 받는 peer thread  => 
 void *recv_from_clnt_thread(void * other_clnt_info) {
     int other_clnt_fd = (*(thread_args *)other_clnt_info).sock_fd;
     sockaddr_in other_clnt_addr = (*(thread_args *)other_clnt_info).addr;
     char buffer[BUF_SIZE];
     char *other_ip = inet_ntoa(other_clnt_addr.sin_addr);
-    string erase_ip = string(other_ip);
-    // int other_clnt_fd = connected_peer[other_ip];
 
     int recv_len = recv(other_clnt_fd, &buffer, BUF_SIZE, 0);
     while(recv_len > 0) {
         if(!strcmp(buffer, "disconnect")) {
             // cout << "map size : " << connected_peer.size() << endl;
-            baseball_answer.erase(erase_ip);
-            connected_peer.erase(erase_ip);
+            baseball_answer.erase(other_ip);
+            connected_peer.erase(other_ip);
             send(other_clnt_fd, "disconnect", BUF_SIZE, 0);
             // cout << "map size : " << connected_peer.size() << endl;
-            // break;      
+
+
+            // socket, thread close, erase from thread list
+            close(other_clnt_fd);
+            pthread_cancel(thread_list[other_ip]);
+            thread_list.erase(other_ip);
+            break;      
         }
         else if(!strcmp(buffer, "guess")) {
             send(other_clnt_fd, "ack", BUF_SIZE, 0);
@@ -218,6 +223,8 @@ void connect(char *ip, int port) {
     thread_args_ip_port pass_args = {ip, port};
     cout << pass_args.ip << ", " << port << endl;
     pthread_create(&send_other_clnt, NULL, send_to_clnt_thread, (void *)&pass_args);
+    
+    thread_list[ip] = send_other_clnt;                       // thread descriptor 저장
 
     sleep(1);                                                // 반환되어버리면 구조체 내의 값들이 해제되어 사라짐
 }
@@ -275,11 +282,11 @@ void menu() {
         cout << "Input Command : ";
         cin >> user_input;
 
-        // for(auto iter = connected_peer.begin(); iter != connected_peer.end(); iter++) {
-        //     cout << iter->first << ", " << iter->second << endl;
-        // }
-        // for(auto iter = baseball_answer.begin(); iter != baseball_answer.end(); iter++)
-        //     cout << iter->first << ", " << iter->second << endl;
+        for(auto iter = connected_peer.begin(); iter != connected_peer.end(); iter++) {
+            cout << iter->first << ", " << iter->second << endl;
+        }
+        for(auto iter = baseball_answer.begin(); iter != baseball_answer.end(); iter++)
+            cout << iter->first << ", " << iter->second << endl;
 
         if(!strcmp(user_input, "help")) {
             printMenu();
