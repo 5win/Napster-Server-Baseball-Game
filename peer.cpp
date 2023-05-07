@@ -13,7 +13,7 @@
 
 using namespace std;
 
-#define C2S_PORT 12346      // Client to Server (12345 -> 12346으로 port forwarding)
+#define C2S_PORT 12346      // Client to Server
 #define CC_PORT 12349       // Client to Client
 #define BUF_SIZE 1024
 
@@ -30,17 +30,16 @@ struct thread_args_ip_port {
 };
 
 // global variables
-int server_send_fd;         // regiServer 연결소켓
-int p2p_recv_fd;            // p2p에서 서버역할 소켓
-sockaddr_in serv_addr;      // regiServer 소켓 정보
-sockaddr_in p2p_recv_addr;  // 나의 소켓 정보
-vector<char *> peer_list;   // 서버에서 받아온 peer list
+int server_send_fd;             // regiServer 연결소켓
+int p2p_recv_fd;                // p2p에서 서버역할 소켓
+sockaddr_in serv_addr;          // regiServer 소켓 정보
+sockaddr_in p2p_recv_addr;      // 나의 소켓 정보
+vector<char *> peer_list;       // 서버에서 받아온 peer list
 map<string, int> connected_peer;            // 현재 연결되어 있는 peer ip의 fd
+map<string, int> game_try_cnt;              // 야구 게임 시도 횟수
 map<string, string> peer_last_guess;        // 해당 peer의 최근 응답
 map<string, string> baseball_answer;        // 각 peer가 맞춰야할 정답 
 map<string, pthread_t> thread_list;         // connect한 thread list
-map<string, int> game_try_cnt;              // 야구 게임 시도 횟수
-
 
 
 void printError(string msg) {
@@ -90,8 +89,8 @@ void *send_to_clnt_thread(void *other_clnt_info) {
 
     bind(send_clnt_fd, (sockaddr *)&send_clnt_addr, sizeof(sockaddr));
     if(connect(send_clnt_fd, (sockaddr*)&send_clnt_addr, sizeof(sockaddr)) < 0)
-        printError("connect to other peer error");
-    cout << "connect to other peer!" << endl;
+        printError("Connect to other peer error");
+    cout << "Connect to other peer success!" << endl;
     
     connected_peer[ip] = send_clnt_fd;                                      // 만약 이미 연결중이라면 거부하는 것 구현하기
 
@@ -184,8 +183,8 @@ void *listen_from_clnt_thread(void *arg) {
             ans.push_back(rand() % 10 + '0');   
         // cout << "rand Num : " << ans << endl;
 
-        baseball_answer[other_ip] = ans;                                              // 야구게임 답을 저장
-        connected_peer[other_ip] = other_fd;                                    // 현재 연결된 peer의 fd 저장
+        baseball_answer[other_ip] = ans;                                                // 야구게임 답을 저장
+        connected_peer[other_ip] = other_fd;                                            // 현재 연결된 peer의 fd 저장
 
         thread_args pass_args = {other_fd, other_clnt_addr};
         pthread_create(&recv_other_clnt, NULL, recv_from_clnt_thread, (void *)&pass_args);
@@ -220,6 +219,10 @@ void getOnlineUser() {
 }
 
 void connect(char *ip, int port) {
+    if(connected_peer.find(ip) != connected_peer.end()) {
+        cout << ip << " already connected\n";
+        return;
+    }
     pthread_t send_other_clnt;
     thread_args_ip_port pass_args = {ip, port};
     cout << pass_args.ip << ", " << port << endl;
@@ -232,8 +235,10 @@ void connect(char *ip, int port) {
 }
 
 void disconnect(char *ip) {
-    if(connected_peer.find(ip) == connected_peer.end())
+    if(connected_peer.find(ip) == connected_peer.end()) {
+        cout << ip << " not connected\n";
         return;
+    }
     char buffer[BUF_SIZE];
     int opponent_fd = connected_peer[ip];
     connected_peer.erase(ip);
@@ -241,8 +246,10 @@ void disconnect(char *ip) {
 }
 
 void guess(char *ip, char *num) {
-    if(connected_peer.find(ip) == connected_peer.end())
+    if(connected_peer.find(ip) == connected_peer.end()) {
+        cout << ip << " not connected\n";
         return;
+    }
     char buffer[BUF_SIZE];
     int opponent_fd = connected_peer[ip];
     send(opponent_fd, "guess", BUF_SIZE, 0);
@@ -251,8 +258,10 @@ void guess(char *ip, char *num) {
 }
 
 void answer(char *ip) {
-    if(connected_peer.find(ip) == connected_peer.end())
+    if(connected_peer.find(ip) == connected_peer.end()) {
+        cout << ip << " not connected\n";
         return;
+    }
     char buffer[BUF_SIZE];
     int opponent_fd = connected_peer[ip];
 
@@ -269,6 +278,7 @@ void logOff() {
     send(server_send_fd, "logoff", BUF_SIZE, 0);
     recv(server_send_fd, &buffer, BUF_SIZE, 0);
     cout << buffer << endl;
+
     exit(1);
 }
 
@@ -278,14 +288,14 @@ void menu() {
     char buffer[BUF_SIZE];
 
     while(1) {
-        cout << "---## Input Command ##---";
+        cout << "---## Input Command ##---\n";
         cin >> user_input;
 
-        for(auto iter = connected_peer.begin(); iter != connected_peer.end(); iter++) {
-            cout << iter->first << ", " << iter->second << endl;
-        }
-        for(auto iter = baseball_answer.begin(); iter != baseball_answer.end(); iter++)
-            cout << iter->first << ", " << iter->second << endl;
+        // for(auto iter = connected_peer.begin(); iter != connected_peer.end(); iter++) {
+        //     cout << iter->first << ", " << iter->second << endl;
+        // }
+        // for(auto iter = baseball_answer.begin(); iter != baseball_answer.end(); iter++)
+        //     cout << iter->first << ", " << iter->second << endl;
 
         if(!strcmp(user_input, "help")) {
             printMenu();
