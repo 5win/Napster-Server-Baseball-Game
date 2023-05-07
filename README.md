@@ -77,7 +77,7 @@
 - 예측 숫자는 반드시 3-digit number를 입력해야 함
 - regiServer, peer 프로그램 종료 후, 다시 실행 시 binding error가 발생한다면, 해당 port의 TIME_WAIT가 끝나지 않은 것이므로 대기했다가 다시 실행해야 함
 
-## Play
+### Play
 1. src peer에서 online_user로 online인 peer들을 확인
 2. connect [ip] [prot]로 게임 시작
 3. src peer는 guess [ip] [predict number]로 숫자 예측
