@@ -23,6 +23,8 @@
 7. answer [peer ip]
 8. logoff
 
+### help
+- Command list를 출력
 
 ### online_users
 - regiServer에게 요청을 보내면, online 상태의 peer list를 받아서 출력
@@ -64,6 +66,8 @@
 - 다른 peer로 부터 connection을 listening하는 listening thread를 생성
 - listening thread에서 accept시 해당 P2P 통신을 수행하는 새 thread 생성
 - main thread는 user I/O로 명령어를 받아서 수행
+
+
 
 
 ## Baseball Game
