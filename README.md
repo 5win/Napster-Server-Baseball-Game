@@ -4,8 +4,12 @@
 - C++ , POSIX pthread
 - x86_64
 - ubuntu 20.04.5 LTS
+- gcc 9.4.0
+- Compile command : g++ file.cpp -o file -pthread
 - regiServer's Port : 12346
 - peer's Port : 12349
+
+
 - 하나의 router의 내부 IP로 서로 연결된 devices에서 실험
     - server-to-peer, peer-to-peer 모두 192.168.xxx.xxx의 내부 IP로 연결함
     - 외부 IP를 통한 Connection의 경우
