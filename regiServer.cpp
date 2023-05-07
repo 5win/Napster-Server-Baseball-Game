@@ -88,7 +88,6 @@ void *newConnection(void * clientSock)
         else if(!strcmp(msg, "logoff")) {
             logOff(clientSocket, clnt_ip);
         }
-
         recv_len = recv(clientSocket, &msg, BUF_SIZE, 0);
     }
 }
@@ -128,7 +127,7 @@ int main(void) {
         multiArgs pass_args = {clientSocket, clientAddr};
 
         pthread_create(&newThread, NULL, newConnection, (void*)&pass_args);
-        cout << newThread << endl;
+        // cout << newThread << endl;
 
         // pthread descriptor 저장
         string ip = inet_ntoa(clientAddr.sin_addr);
