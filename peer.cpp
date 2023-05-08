@@ -131,6 +131,7 @@ void *recv_from_clnt_thread(void * other_clnt_info) {
             baseball_answer.erase(other_ip);
             connected_peer.erase(other_ip);
             send(other_clnt_fd, "disconnect", BUF_SIZE, 0);
+            cout << "Disconnected from " << other_ip << endl;
 
             // socket, thread close, erase from thread list
             close(other_clnt_fd);
@@ -225,7 +226,7 @@ void connect(char *ip, int port) {
     }
     pthread_t send_other_clnt;
     thread_args_ip_port pass_args = {ip, port};
-    cout << pass_args.ip << ", " << port << endl;
+    // cout << pass_args.ip << ", " << port << endl;
     pthread_create(&send_other_clnt, NULL, send_to_clnt_thread, (void *)&pass_args);
     
     thread_list[ip] = send_other_clnt;                       // thread descriptor 저장
