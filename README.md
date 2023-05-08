@@ -73,7 +73,6 @@
 
 
 
-
 ## Baseball Game
 
 ### Limits
@@ -82,6 +81,8 @@
 - regiServer, peer 프로그램 종료 후, 다시 실행 시 binding error가 발생한다면, 해당 port의 TIME_WAIT가 끝나지 않은 것이므로 대기했다가 다시 실행해야 함
 
 ### Play
+이 때, 하나의 peer가 여러 다른 peer들과 동시에 게임이 가능
+
 1. src peer에서 online_user로 online인 peer들을 확인
 2. connect [ip] [prot]로 게임 시작
 3. src peer는 guess [ip] [predict number]로 숫자 예측
